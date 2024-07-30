@@ -50,20 +50,38 @@ pub enum LowPowerMode {
     /// lowest power
     LPM3,
 }
+impl LowPowerMode {
+    /// Returns LPM0, the lowest noise (highest power) mode
+    pub fn lowest_noise() -> Self {
+        Self::LPM0
+    }
+    /// Returns LPM1, a lower noise (higher power) mode
+    pub fn lower_noise() -> Self {
+        Self::LPM1
+    }
+    /// Returns LPM2, a lower power (higher noise) mode
+    pub fn lower_power() -> Self {
+        Self::LPM2
+    }
+    /// Returns LPM3, the lowest power (highest noise) mode
+    pub fn lowest_power() -> Self {
+        Self::LPM3
+    }
+}
 
 /// Options for what to read from the device when in auto mode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AutoReadTarget {
     /// most recently sampled temperature and relative humidity
-    LastTempAndRH,
+    LastTempAndRelHumid,
     /// minimum temperature since auto mode was started
     MinTemp,
     /// maximum temperature since auto mode was started
     MaxTemp,
     /// minimum relative humidity since auto mode was started
-    MinRH,
+    MinRelHumid,
     /// maximum relative humidity since auto mode was started
-    MaxRH,
+    MaxRelHumid,
 }
 
 /// Options for the on-device heater.  The datasheet claims this may be useful to drive off condensation.
@@ -150,11 +168,11 @@ pub(crate) fn reset_state_value(sample_rate: SampleRate, low_power_mode: LowPowe
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Command {
     AutoExit,
-    AutoReadTandRH,
-    AutoReadMinT,
-    AutoReadMaxT,
-    AutoReadMinRH,
-    AutoReadMaxRH,
+    AutoReadTempAndRelHumid,
+    AutoReadMinTemp,
+    AutoReadMaxTemp,
+    AutoReadMinRelHumid,
+    AutoReadMaxRelHumid,
     
     #[allow(unused)]
     WriteSetLowAlert,
@@ -201,11 +219,11 @@ impl Command {
     pub(crate) fn to_be_bytes(&self) -> [u8; 2] {
         match self {
             Self::AutoExit => 0x3093_u16,
-            Self::AutoReadTandRH => 0xe000_u16,
-            Self::AutoReadMinT => 0xe002_u16,
-            Self::AutoReadMaxT => 0xe003_u16,
-            Self::AutoReadMinRH => 0xe004_u16,
-            Self::AutoReadMaxRH => 0xe005_u16,
+            Self::AutoReadTempAndRelHumid => 0xe000_u16,
+            Self::AutoReadMinTemp => 0xe002_u16,
+            Self::AutoReadMaxTemp => 0xe003_u16,
+            Self::AutoReadMinRelHumid => 0xe004_u16,
+            Self::AutoReadMaxRelHumid => 0xe005_u16,
 
             Self::WriteSetLowAlert => 0x6100_u16,
             Self::WriteSetHighAlert => 0x611d_u16,
@@ -261,3 +279,5 @@ pub(crate) const STATUS_FIELD_WIDTH_T_HIGH_TRACKING_ALERT: usize = 1;
 pub(crate) const STATUS_FIELD_WIDTH_T_LOW_TRACKING_ALERT: usize = 1;
 pub(crate) const STATUS_FIELD_WIDTH_RESET_SINCE_CLEAR: usize = 1;
 pub(crate) const STATUS_FIELD_WIDTH_CHECKSUM_FAILURE: usize = 1;
+
+pub(crate) const MANUFACTURER_ID_TEXAS_INSTRUMENTS: u16 = 0x3000u16;

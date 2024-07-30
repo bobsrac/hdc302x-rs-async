@@ -15,6 +15,11 @@ where
     I2C: I2c<Error = E>,
     Delay: DelayNs,
 {
+    /// Create a new HDC302x driver instance
+    pub fn new(i2c: I2C, delay: Delay, i2c_addr: I2cAddr) -> Self {
+        Self { i2c, delay, i2c_addr }
+    }
+
     async fn cmd_and_read(&mut self, cmd_bytes: &[u8; 2], read_vals: &mut [u16]) -> Result<(), Error<E>> {
         // We are heapless, so have to have an upper bound
         assert!(read_vals.len() <= 2);
@@ -48,7 +53,7 @@ where
         let cmd_bytes = start_sampling_command(SampleRate::OneShot, low_power_mode).to_be_bytes();
         let mut read_buf = [0u16; 2];
         self.cmd_and_read(&cmd_bytes, &mut read_buf).await?;
-        Ok(RawDatum::TempAndRH(RawTempAndRH {
+        Ok(RawDatum::TempAndRelHumid(RawTempAndRelHumid {
             temperature: read_buf[0],
             humidity: read_buf[1],
         }))
@@ -70,33 +75,33 @@ where
     /// read most recent temperature and relative humidity from auto mode
     pub async fn auto_read(&mut self, target: AutoReadTarget) -> Result<RawDatum, Error<E>> {
         let cmd_bytes = match target {
-            AutoReadTarget::LastTempAndRH => Command::AutoReadTandRH,
-            AutoReadTarget::MinTemp => Command::AutoReadMinT,
-            AutoReadTarget::MaxTemp => Command::AutoReadMaxT,
-            AutoReadTarget::MinRH => Command::AutoReadMinRH,
-            AutoReadTarget::MaxRH => Command::AutoReadMaxRH,
+            AutoReadTarget::LastTempAndRelHumid => Command::AutoReadTempAndRelHumid,
+            AutoReadTarget::MinTemp => Command::AutoReadMinTemp,
+            AutoReadTarget::MaxTemp => Command::AutoReadMaxTemp,
+            AutoReadTarget::MinRelHumid => Command::AutoReadMinRelHumid,
+            AutoReadTarget::MaxRelHumid => Command::AutoReadMaxRelHumid,
         }.to_be_bytes();
 
         let mut read_buf = [0u16; 2];
         let read_buf_slice = match target {
-            AutoReadTarget::LastTempAndRH => &mut read_buf[..2],
+            AutoReadTarget::LastTempAndRelHumid => &mut read_buf[..2],
             AutoReadTarget::MinTemp => &mut read_buf[..1],
             AutoReadTarget::MaxTemp => &mut read_buf[..1],
-            AutoReadTarget::MinRH => &mut read_buf[..1],
-            AutoReadTarget::MaxRH => &mut read_buf[..1],
+            AutoReadTarget::MinRelHumid => &mut read_buf[..1],
+            AutoReadTarget::MaxRelHumid => &mut read_buf[..1],
         };
 
         self.cmd_and_read(&cmd_bytes, read_buf_slice).await?;
 
         Ok(match target {
-            AutoReadTarget::LastTempAndRH => RawDatum::TempAndRH(RawTempAndRH {
+            AutoReadTarget::LastTempAndRelHumid => RawDatum::TempAndRelHumid(RawTempAndRelHumid {
                 temperature: read_buf[0],
                 humidity: read_buf[1],
             }),
             AutoReadTarget::MinTemp => RawDatum::MinTemp(read_buf[0]),
             AutoReadTarget::MaxTemp => RawDatum::MaxTemp(read_buf[0]),
-            AutoReadTarget::MinRH => RawDatum::MinRH(read_buf[0]),
-            AutoReadTarget::MaxRH => RawDatum::MaxRH(read_buf[0]),
+            AutoReadTarget::MinRelHumid => RawDatum::MinRelHumid(read_buf[0]),
+            AutoReadTarget::MaxRelHumid => RawDatum::MaxRelHumid(read_buf[0]),
         })
     }
 
@@ -117,29 +122,37 @@ where
     }
 
     /// Read and optionally clear status bits
-    pub async fn read_status(&mut self, clear: bool) -> Result<u16, Error<E>> {
+    pub async fn read_status(&mut self, clear: bool) -> Result<StatusBits, Error<E>> {
         let mut read_buf = [0u16; 1];
         self.cmd_and_read(&Command::StatusRead.to_be_bytes(), &mut read_buf).await?;
         if clear {
             self.cmd_and_read(&Command::StatusClear.to_be_bytes(), &mut [0u16; 0]).await?;
         }
 
-        Ok(read_buf[0])
+        Ok(StatusBits::from(read_buf[0]))
     }
 
     /// Read the NIST-tracable serial number
-    pub async fn read_serial_number(&mut self, serial: &mut [u16; 3]) -> Result<(), Error<E>> {
-        self.cmd_and_read(&Command::SerialID10.to_be_bytes(), &mut serial[0..0]).await?;
-        self.cmd_and_read(&Command::SerialID32.to_be_bytes(), &mut serial[1..1]).await?;
-        self.cmd_and_read(&Command::SerialID54.to_be_bytes(), &mut serial[2..2]).await?;
-        Ok(())
+    pub async fn read_serial_number(&mut self) -> Result<SerialNumber, Error<E>> {
+        let mut temp_u16 = [0u16; 1];
+        let mut bytes= [0u8; 6];
+        self.cmd_and_read(&Command::SerialID54.to_be_bytes(), &mut temp_u16).await?;
+        bytes[5] = (temp_u16[0] >> 8) as u8;
+        bytes[4] = temp_u16[0] as u8;
+        self.cmd_and_read(&Command::SerialID32.to_be_bytes(), &mut temp_u16).await?;
+        bytes[3] = (temp_u16[0] >> 8) as u8;
+        bytes[2] = temp_u16[0] as u8;
+        self.cmd_and_read(&Command::SerialID10.to_be_bytes(), &mut temp_u16).await?;
+        bytes[1] = (temp_u16[0] >> 8) as u8;
+        bytes[0] = temp_u16[0] as u8;
+        Ok(SerialNumber(bytes))
     }
 
     /// Read the NIST-tracable manufacturer ID
-    pub async fn read_manufacturer_id(&mut self) -> Result<u16, Error<E>> {
+    pub async fn read_manufacturer_id(&mut self) -> Result<ManufacturerId, Error<E>> {
         let mut read_buf = [0u16; 1];
         self.cmd_and_read(&Command::ManufacturerID.to_be_bytes(), &mut read_buf).await?;
-        Ok(read_buf[0])
+        Ok(ManufacturerId::from(read_buf[0]))
     }
 
     /// software reset

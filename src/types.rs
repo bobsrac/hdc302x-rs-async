@@ -1,5 +1,7 @@
 use crate::hw_def::*;
 
+use core::fmt;
+
 /// HDC302x(-Q1) device driver
 #[derive(Debug)]
 pub struct Hdc302x<I2C, Delay> {
@@ -23,54 +25,54 @@ pub enum Error<E> {
 #[derive(Debug)]
 pub enum RawDatum {
     /// temerature and relative humidity from one-shot or auto mode
-    TempAndRH(RawTempAndRH),
+    TempAndRelHumid(RawTempAndRelHumid),
     /// minimum temperature since auto mode was enabled
     MinTemp(u16),
     /// maximum temperature since auto mode was enabled
     MaxTemp(u16),
     /// minimum relative humidity since auto mode was enabled
-    MinRH(u16),
+    MinRelHumid(u16),
     /// maximum relative humidity since auto mode was enabled
-    MaxRH(u16),
+    MaxRelHumid(u16),
 }
 /// Raw (still in u16 format) temperature and relative humidity from the device
 #[derive(Debug)]
-pub struct RawTempAndRH{
+pub struct RawTempAndRelHumid{
     /// unprocessed temperature
     pub temperature: u16,
     /// unprocessed relative humiodity
     pub humidity: u16,
 }
 
-/// Temperature and/or humidity from the device after conversion
+/// Temp and/or humidity from the device after conversion
 #[derive(Debug)]
 pub enum Datum {
     /// temerature and relative humidity from one-shot or auto mode
-    TempAndRH(TempAndRH),
+    TempAndRelHumid(TempAndRelHumid),
     /// minimum temperature since auto mode was enabled
     MinTemp(Temp),
     /// maximum temperature since auto mode was enabled
     MaxTemp(Temp),
     /// minimum relative humidity since auto mode was enabled
-    MinRH(f32),
+    MinRelHumid(f32),
     /// maximum relative humidity since auto mode was enabled
-    MaxRH(f32),
+    MaxRelHumid(f32),
 }
 impl From<&RawDatum> for Datum {
     fn from(raw: &RawDatum) -> Self {
         match raw {
-            RawDatum::TempAndRH(raw) => Datum::TempAndRH(raw.into()),
+            RawDatum::TempAndRelHumid(raw) => Datum::TempAndRelHumid(raw.into()),
             RawDatum::MinTemp(raw) => Datum::MinTemp((*raw).into()),
             RawDatum::MaxTemp(raw) => Datum::MaxTemp((*raw).into()),
-            RawDatum::MinRH(raw) => Datum::MinRH((*raw).into()),
-            RawDatum::MaxRH(raw) => Datum::MaxRH((*raw).into()),
+            RawDatum::MinRelHumid(raw) => Datum::MinRelHumid((*raw).into()),
+            RawDatum::MaxRelHumid(raw) => Datum::MaxRelHumid((*raw).into()),
         }
     }
 }
 
-/// Temperature and relative humidity from the device after conversion
+/// Temp and relative humidity from the device after conversion
 #[derive(Debug)]
-pub struct TempAndRH {
+pub struct TempAndRelHumid {
     /// degrees centigrade
     pub centigrade: f32,
     /// degrees fahrenheit
@@ -78,8 +80,8 @@ pub struct TempAndRH {
     /// relative humidity in percent
     pub humidity_percent: f32,
 }
-impl From<&RawTempAndRH> for TempAndRH {
-    fn from(raw: &RawTempAndRH) -> Self {
+impl From<&RawTempAndRelHumid> for TempAndRelHumid {
+    fn from(raw: &RawTempAndRelHumid) -> Self {
         Self {
             centigrade: -45.0 + (175.0 * (raw.temperature as f32) / 65535.0),
             fahrenheit: -49.0 + (315.0 * (raw.temperature as f32) / 65535.0),
@@ -87,7 +89,7 @@ impl From<&RawTempAndRH> for TempAndRH {
         }
     }
 }
-/// Temperature after conversion
+/// Temp after conversion
 #[derive(Debug)]
 pub struct Temp{
     /// degrees centigrade
@@ -107,6 +109,7 @@ impl From<u16> for Temp {
 /// Status bits from the device
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StatusBits {
+    raw: u16,
     /// at least one alert is active
     pub at_least_one_alert: bool,
     /// heater is enabled
@@ -131,6 +134,7 @@ pub struct StatusBits {
 impl From<u16> for StatusBits {
     fn from(raw: u16) -> Self {
         Self {
+            raw,
             at_least_one_alert: (raw >> STATUS_FIELD_LSBIT_AT_LEAST_ONE_ALERT) & ((1 << STATUS_FIELD_WIDTH_AT_LEAST_ONE_ALERT) - 1) != 0,
             heater_enabled: (raw >> STATUS_FIELD_LSBIT_HEATER_ENABLED) & ((1 << STATUS_FIELD_WIDTH_HEATER_ENABLED) - 1) != 0,
             rh_tracking_alert: (raw >> STATUS_FIELD_LSBIT_RH_TRACKING_ALERT) & ((1 << STATUS_FIELD_WIDTH_RH_TRACKING_ALERT) - 1) != 0,
@@ -141,6 +145,96 @@ impl From<u16> for StatusBits {
             t_low_tracking_alert: (raw >> STATUS_FIELD_LSBIT_T_LOW_TRACKING_ALERT) & ((1 << STATUS_FIELD_WIDTH_T_LOW_TRACKING_ALERT) - 1) != 0,
             reset_since_clear: (raw >> STATUS_FIELD_LSBIT_RESET_SINCE_CLEAR) & ((1 << STATUS_FIELD_WIDTH_RESET_SINCE_CLEAR) - 1) != 0,
             checksum_failure: (raw >> STATUS_FIELD_LSBIT_CHECKSUM_FAILURE) & ((1 << STATUS_FIELD_WIDTH_CHECKSUM_FAILURE) - 1) != 0,
+        }
+    }
+}
+impl StatusBits {
+    /// Get the raw status bits
+    pub fn raw(&self) -> u16 {
+        self.raw
+    }
+}
+impl fmt::Display for StatusBits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "StatusBits {{ 0x{:02x}; ", self.raw)?;
+        if self.at_least_one_alert {
+            write!(f, "at_least_one_alert ")?;
+        }
+        if self.heater_enabled {
+            write!(f, "heater_enabled ")?;
+        }
+        if self.rh_tracking_alert {
+            write!(f, "rh_tracking_alert ")?;
+        }
+        if self.t_tracking_alert {
+            write!(f, "t_tracking_alert ")?;
+        }
+        if self.rh_high_tracking_alert {
+            write!(f, "rh_high_tracking_alert ")?;
+        }
+        if self.rh_low_tracking_alert {
+            write!(f, "rh_low_tracking_alert ")?;
+        }
+        if self.t_high_tracking_alert {
+            write!(f, "t_high_tracking_alert ")?;
+        }
+        if self.t_low_tracking_alert {
+            write!(f, "t_low_tracking_alert ")?;
+        }
+        if self.reset_since_clear {
+            write!(f, "reset_since_clear ")?;
+        }
+        if self.checksum_failure {
+            write!(f, "checksum_failure ")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+
+/// Serial number of the device
+pub struct SerialNumber(pub [u8; 6]);
+impl fmt::Display for SerialNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0.iter().rev() {
+            write!(f, "{:02X}", byte)?;
+        }
+        Ok(())
+    }
+}
+
+/// Manufacturer ID of the device
+#[derive(Clone, Copy)]
+pub enum ManufacturerId {
+    /// Texas Instruments
+    TexasInstruments,
+    /// Other
+    Other(u16),
+}
+impl From<u16> for ManufacturerId {
+    fn from(raw: u16) -> Self {
+        match raw {
+            MANUFACTURER_ID_TEXAS_INSTRUMENTS => ManufacturerId::TexasInstruments,
+            _ => ManufacturerId::Other(raw),
+        }
+    }
+}
+impl Into<u16> for ManufacturerId {
+    fn into(self) -> u16 {
+        match self {
+            ManufacturerId::TexasInstruments => MANUFACTURER_ID_TEXAS_INSTRUMENTS,
+            ManufacturerId::Other(id) => id,
+        }
+    }
+}
+impl fmt::Display for ManufacturerId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ManufacturerId::TexasInstruments => {
+                let mid_u16: u16 = (*self).into();
+                write!(f, "Texas Instruments (0x{mid_u16:04X})")
+            }
+            ManufacturerId::Other(mid_u16) => write!(f, "Unknown (0x{mid_u16:04X})"),
         }
     }
 }
