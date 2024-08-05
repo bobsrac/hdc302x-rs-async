@@ -21,8 +21,9 @@ where
     }
 
     async fn cmd_and_read(&mut self, cmd_bytes: &[u8; 2], read_vals: &mut [u16]) -> Result<(), Error<E>> {
+        let num_vals = read_vals.len();
         // We are heapless, so have to have an upper bound
-        assert!(read_vals.len() <= 2);
+        assert!(num_vals <= 2);
 
         if read_vals.is_empty() {
             if let Err(i2c_err) = self.i2c.write(self.i2c_addr.as_u8(), cmd_bytes).await {
@@ -30,19 +31,24 @@ where
             }
         } else {
             let mut read_buf = [0u8; 6];
-            let read_buf_slice = &mut read_buf[0..(3 * read_vals.len())];
+            let read_buf_slice = &mut read_buf[0..(3 * num_vals)];
+            log::trace!("hdc302x::cmd_and_read(): read_buf_slice.len()={}", read_buf_slice.len());
             if let Err(_) = self.i2c.write_read(self.i2c_addr.as_u8(), cmd_bytes, read_buf_slice).await {
                 // TODO: consider a timeout and/or retry limit
                 while let Err(_) = self.i2c.read(self.i2c_addr.as_u8(), read_buf_slice).await {
                     self.delay.delay_ms(1).await;
                 };
             };
-            // TODO: consider whether to retryu around this failure
-            for ii in 0..read_vals.len() {
-                if read_buf[ii * 3 - 1] != CRC.checksum(&read_buf[(ii*3)..(ii*3 + 1)]) {
+            // TODO: consider whether to retry around this failure
+            for ii in 0..num_vals {
+                let read_word = &read_buf[ii*3+0..=ii*3+1];
+                let read_crc = &read_buf[ii*3+2];
+                let crc_expect = CRC.checksum(read_word);
+                if *read_crc != crc_expect {
+                    log::warn!("hdc302x::cmd_and_read(): crc mismatch word {ii}/{num_vals}: read_buf={read_buf:?}, read_word={read_word:?}, read_crc={read_crc}, crc_expect={crc_expect}");
                     return Err(Error::CrcMismatch);
                 }
-                read_vals[ii] = (read_buf[ii * 3] as u16) << 8 | read_buf[ii * 3 + 1] as u16;
+                read_vals[ii] = (read_word[0] as u16) << 8 | read_word[1] as u16;
             }
         }
         Ok(())
